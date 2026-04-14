@@ -213,16 +213,34 @@
                         lastErrorMessage = message;
                     });
 
-                    // The FFmpeg library auto-discovers 814.ffmpeg.js relative to ffmpeg.js's publicPath.
-                    // Since both are served from /ffmpeg-lib/ on the same origin, this works natively.
-                    // DO NOT pass classWorkerURL - it forces a module worker where importScripts() fails!
-                    // coreURL + wasmURL use toBlobURL so the worker can importScripts() them successfully.
+                    // Try loading multi-threaded core first (requires SharedArrayBuffer via COOP/COEP headers).
+                    // Falls back to single-threaded core if SharedArrayBuffer isn't available.
                     const baseURL = window.location.origin + '/ffmpeg-lib';
-                    
-                    await ffmpeg.load({
-                        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-                        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm')
-                    });
+                    let useMT = false;
+
+                    if (typeof SharedArrayBuffer !== 'undefined') {
+                        try {
+                            console.log('[Init] SharedArrayBuffer available — loading multi-threaded core...');
+                            await ffmpeg.load({
+                                coreURL: await toBlobURL(`${baseURL}/ffmpeg-core-mt.js`, 'text/javascript'),
+                                wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core-mt.wasm`, 'application/wasm'),
+                                workerURL: await toBlobURL(`${baseURL}/ffmpeg-core-mt.worker.js`, 'text/javascript')
+                            });
+                            useMT = true;
+                            console.log('[Init] Multi-threaded FFmpeg core loaded successfully!');
+                        } catch (mtError) {
+                            console.warn('[Init] MT core failed, falling back to single-threaded:', mtError);
+                        }
+                    }
+
+                    if (!useMT) {
+                        console.log('[Init] Loading single-threaded core...');
+                        await ffmpeg.load({
+                            coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+                            wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm')
+                        });
+                        console.log('[Init] Single-threaded FFmpeg core loaded.');
+                    }
 
                     showState('upload');
                 } catch (error) {
@@ -278,7 +296,7 @@
                 showState('upload');
             });
 
-            // Conversion Logic (v0.12.x Syntax)
+            // Conversion Logic — Two-Phase Speed Strategy
             btnConvert.addEventListener('click', async () => {
                 if (!currentFile || !ffmpeg) return;
 
@@ -291,20 +309,56 @@
                     const inputName = 'input.webm';
                     const outputName = 'output.mp4';
 
-                    // Write file
+                    // Write source file into FFmpeg's virtual filesystem
                     await ffmpeg.writeFile(inputName, await fetchFile(currentFile));
 
-                    // Execute robust conversion (no forced audio codec, handles silent videos properly)
-                    await ffmpeg.exec([
-                        '-i', inputName,
-                        '-c:v', 'libx264',
-                        '-preset', 'ultrafast',
-                        '-crf', '17',
-                        outputName
-                    ]);
+                    let data;
+                    let method = '';
 
-                    // Read output
-                    const data = await ffmpeg.readFile(outputName);
+                    // ====== PHASE 1: Instant Stream Copy (no re-encoding) ======
+                    // If the WEBM contains VP9 video (very common), we can just rewrap
+                    // the streams directly into an MP4 container — essentially zero processing time.
+                    try {
+                        console.log('[Convert] Phase 1: Attempting instant stream copy...');
+                        await ffmpeg.exec([
+                            '-i', inputName,
+                            '-c', 'copy',
+                            '-movflags', '+faststart',
+                            outputName
+                        ]);
+
+                        data = await ffmpeg.readFile(outputName);
+
+                        // Validate: stream copy can "succeed" but produce a tiny/empty file
+                        if (data.length > 1024) {
+                            method = 'Stream Copy (instant)';
+                            console.log('[Convert] Phase 1 succeeded! No re-encoding needed.');
+                        } else {
+                            console.warn('[Convert] Phase 1 produced empty output, falling back...');
+                            data = null;
+                            try { await ffmpeg.deleteFile(outputName); } catch(e) {}
+                        }
+                    } catch (copyErr) {
+                        console.warn('[Convert] Phase 1 failed (codec not MP4-compatible):', copyErr);
+                        data = null;
+                        try { await ffmpeg.deleteFile(outputName); } catch(e) {}
+                    }
+
+                    // ====== PHASE 2: Fast Re-encode (only if stream copy failed) ======
+                    if (!data) {
+                        console.log('[Convert] Phase 2: Re-encoding with optimized settings...');
+                        await ffmpeg.exec([
+                            '-i', inputName,
+                            '-c:v', 'libx264',
+                            '-preset', 'ultrafast',
+                            '-crf', '23',
+                            '-tune', 'fastdecode',
+                            '-movflags', '+faststart',
+                            outputName
+                        ]);
+                        data = await ffmpeg.readFile(outputName);
+                        method = 'Re-encoded (H.264)';
+                    }
                     
                     const blob = new Blob([data.buffer], { type: 'video/mp4' });
                     
@@ -316,7 +370,7 @@
                     let outName = currentFile.name.replace(/\.[^/.]+$/, "") + ".mp4";
                     btnDownload.href = outputObjectURL;
                     btnDownload.download = outName;
-                    outputInfo.innerText = `Converted Size: ${formatBytes(blob.size)}`;
+                    outputInfo.innerText = `${method} • ${formatBytes(blob.size)}`;
 
                     // Cleanup
                     await ffmpeg.deleteFile(inputName);

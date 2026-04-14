@@ -3,6 +3,10 @@ const fs = require('fs');
 const path = require('path');
 
 const server = http.createServer((req, res) => {
+    // Enable SharedArrayBuffer for multi-threaded FFmpeg
+    // Using 'credentialless' so Tailwind CSS CDN still loads
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');
 
     let filePath = path.join(__dirname, req.url === '/' ? 'index.html' : req.url);
     
