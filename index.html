@@ -213,14 +213,15 @@
                         lastErrorMessage = message;
                     });
 
-                    // The FFmpeg UMD build has a hardcoded file:// base path for Worker URL resolution.
-                    // We MUST use toBlobURL to create blob: URLs that bypass this bug entirely.
+                    // The FFmpeg library auto-discovers 814.ffmpeg.js relative to ffmpeg.js's publicPath.
+                    // Since both are served from /ffmpeg-lib/ on the same origin, this works natively.
+                    // DO NOT pass classWorkerURL - it forces a module worker where importScripts() fails!
+                    // coreURL + wasmURL use toBlobURL so the worker can importScripts() them successfully.
                     const baseURL = window.location.origin + '/ffmpeg-lib';
                     
                     await ffmpeg.load({
                         coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-                        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-                        classWorkerURL: await toBlobURL(`${baseURL}/814.ffmpeg.js`, 'text/javascript')
+                        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm')
                     });
 
                     showState('upload');
