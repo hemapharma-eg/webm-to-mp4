@@ -4,10 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>High-Fidelity WEBM to MP4</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Using FFmpeg v0.11.x which provides a more robust compatibility layer for local static HTML execution -->
-    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+    <!-- Using FFmpeg v0.12: modern, built for proper local servers, NO SharedArrayBuffer needed for standard core! -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+    <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
     
     <style>
         .gradient-text {
@@ -102,7 +104,7 @@
                     </div>
                 </div>
                 <h3 class="text-lg font-medium text-gray-200 mb-1">Transcoding Engine Active</h3>
-                <p class="text-sm text-gray-500 text-center px-4">Processing frames. This may take a while depending on file size and device speed.</p>
+                <p class="text-sm text-gray-500 text-center px-4">Processing frames. This may take a while depending on file size.</p>
             </div>
 
             <!-- State 5: Done -->
@@ -169,6 +171,7 @@
             let ffmpeg = null;
             let currentFile = null;
             let outputObjectURL = null;
+            let lastErrorMessage = '';
 
             // Utility: Format Bytes
             function formatBytes(bytes, decimals = 2) {
@@ -186,25 +189,17 @@
                 states[stateName].classList.remove('hidden');
             }
 
-            let lastErrorMessage = '';
-
-            // Initialize FFmpeg WebAssembly Engine (v0.11)
+            // Initialize FFmpeg WebAssembly Engine (v0.12)
             async function initFFmpeg() {
                 try {
-                    const { createFFmpeg } = FFmpeg;
+                    const { FFmpeg } = window.FFmpegWASM;
+                    const { toBlobURL } = window.FFmpegUtil;
 
-                    ffmpeg = createFFmpeg({
-                        log: true,
-                        corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
-                        logger: ({ message }) => {
-                            console.log('[FFmpeg]', message);
-                            lastErrorMessage = message;
-                        }
-                    });
+                    ffmpeg = new FFmpeg();
 
                     // Update UI Progress Ring
-                    ffmpeg.setProgress(({ ratio }) => {
-                        let percentage = Math.min(Math.max(ratio * 100, 0), 100);
+                    ffmpeg.on('progress', ({ progress }) => {
+                        let percentage = Math.min(Math.max(progress * 100, 0), 100);
                         if(isNaN(percentage)) percentage = 0; 
                         
                         progressText.innerText = `${Math.round(percentage)}%`;
@@ -213,12 +208,23 @@
                         progressCircle.style.strokeDashoffset = offset;
                     });
 
-                    await ffmpeg.load();
+                    ffmpeg.on('log', ({ message }) => {
+                        console.log('[FFmpeg]', message);
+                        lastErrorMessage = message;
+                    });
+
+                    const coreBaseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+                    
+                    // Loading core files exactly as documented, allowing local server to resolve cleanly
+                    await ffmpeg.load({
+                        coreURL: await toBlobURL(`${coreBaseURL}/ffmpeg-core.js`, 'text/javascript'),
+                        wasmURL: await toBlobURL(`${coreBaseURL}/ffmpeg-core.wasm`, 'application/wasm')
+                    });
 
                     showState('upload');
                 } catch (error) {
                     console.error("FFmpeg Load Error:", error);
-                    errorMessage.innerText = "Failed to load the conversion engine. Please check your network connection.";
+                    errorMessage.innerText = `Failed to load engine: ${error.message}`;
                     showState('error');
                 }
             }
@@ -268,7 +274,7 @@
                 showState('upload');
             });
 
-            // Conversion Logic (v0.11.x Syntax)
+            // Conversion Logic (v0.12.x Syntax)
             btnConvert.addEventListener('click', async () => {
                 if (!currentFile || !ffmpeg) return;
 
@@ -277,26 +283,25 @@
                 progressCircle.style.strokeDashoffset = 276.46;
 
                 try {
-                    const { fetchFile } = FFmpeg;
+                    const { fetchFile } = window.FFmpegUtil;
                     const inputName = 'input.webm';
                     const outputName = 'output.mp4';
 
-                    // 1. Write file to Virtual File System
-                    ffmpeg.FS('writeFile', inputName, await fetchFile(currentFile));
+                    // Write file
+                    await ffmpeg.writeFile(inputName, await fetchFile(currentFile));
 
-                    // 2. Execute High-Quality Transcoding
-                    await ffmpeg.run(
+                    // Execute robust conversion (no forced audio codec, handles silent videos properly)
+                    await ffmpeg.exec([
                         '-i', inputName,
                         '-c:v', 'libx264',
                         '-preset', 'ultrafast',
                         '-crf', '17',
                         outputName
-                    );
+                    ]);
 
-                    // 3. Read Output from Virtual File System
-                    const data = ffmpeg.FS('readFile', outputName);
+                    // Read output
+                    const data = await ffmpeg.readFile(outputName);
                     
-                    // 4. Create Blob & Download URL
                     const blob = new Blob([data.buffer], { type: 'video/mp4' });
                     
                     if (outputObjectURL) {
@@ -304,35 +309,38 @@
                     }
                     outputObjectURL = URL.createObjectURL(blob);
 
-                    // 5. Setup Download State
                     let outName = currentFile.name.replace(/\.[^/.]+$/, "") + ".mp4";
                     btnDownload.href = outputObjectURL;
                     btnDownload.download = outName;
                     outputInfo.innerText = `Converted Size: ${formatBytes(blob.size)}`;
 
-                    // 6. Cleanup Memory
-                    ffmpeg.FS('unlink', inputName);
-                    ffmpeg.FS('unlink', outputName);
+                    // Cleanup
+                    await ffmpeg.deleteFile(inputName);
+                    await ffmpeg.deleteFile(outputName);
 
                     showState('done');
                 } catch (error) {
                     console.error("Conversion Error:", error);
-                    errorMessage.innerText = `Error: ${error.message || 'unknown'}. (Log: ${lastErrorMessage})`;
+                    errorMessage.innerText = `Conversion Error: ${error.message || 'Check console details'}. (Log: ${lastErrorMessage})`;
                     showState('error');
                 }
             });
 
-            // Reset flows
             const resetFlow = () => {
                 currentFile = null;
                 fileInput.value = "";
+                // Hard reload to prevent stalled memory/worker state after an error!
+                if(states['error'].classList.contains('hidden') === false) {
+                    location.reload();
+                    return;
+                }
                 showState('upload');
             };
 
             btnReset.addEventListener('click', resetFlow);
             btnErrorReset.addEventListener('click', resetFlow);
 
-            // Start Initializing on load
+            // Execute strictly on load
             initFFmpeg();
         });
     </script>
