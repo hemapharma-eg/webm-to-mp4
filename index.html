@@ -213,34 +213,22 @@
                         lastErrorMessage = message;
                     });
 
-                    // Try loading multi-threaded core first (requires SharedArrayBuffer via COOP/COEP headers).
-                    // Falls back to single-threaded core if SharedArrayBuffer isn't available.
                     const baseURL = window.location.origin + '/ffmpeg-lib';
-                    let useMT = false;
 
-                    if (typeof SharedArrayBuffer !== 'undefined') {
-                        try {
-                            console.log('[Init] SharedArrayBuffer available — loading multi-threaded core...');
-                            await ffmpeg.load({
-                                coreURL: await toBlobURL(`${baseURL}/ffmpeg-core-mt.js`, 'text/javascript'),
-                                wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core-mt.wasm`, 'application/wasm'),
-                                workerURL: await toBlobURL(`${baseURL}/ffmpeg-core-mt.worker.js`, 'text/javascript')
-                            });
-                            useMT = true;
-                            console.log('[Init] Multi-threaded FFmpeg core loaded successfully!');
-                        } catch (mtError) {
-                            console.warn('[Init] MT core failed, falling back to single-threaded:', mtError);
-                        }
-                    }
+                    // Load single-threaded core with a safety timeout
+                    const loadWithTimeout = (promise, ms) => Promise.race([
+                        promise,
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Loading timed out. Please refresh and try again.')), ms))
+                    ]);
 
-                    if (!useMT) {
-                        console.log('[Init] Loading single-threaded core...');
-                        await ffmpeg.load({
+                    await loadWithTimeout(
+                        ffmpeg.load({
                             coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
                             wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm')
-                        });
-                        console.log('[Init] Single-threaded FFmpeg core loaded.');
-                    }
+                        }),
+                        30000 // 30 second timeout
+                    );
+                    console.log('[Init] FFmpeg core loaded successfully.');
 
                     showState('upload');
                 } catch (error) {
