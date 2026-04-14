@@ -210,11 +210,13 @@
                         console.log('[FFmpeg]', message);
                     });
 
-                    const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
+                    const coreBase = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
+                    const ffmpegBase = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd';
                     
                     await ffmpeg.load({
-                        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-                        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm')
+                        coreURL: await toBlobURL(`${coreBase}/ffmpeg-core.js`, 'text/javascript'),
+                        wasmURL: await toBlobURL(`${coreBase}/ffmpeg-core.wasm`, 'application/wasm'),
+                        classWorkerURL: await toBlobURL(`${ffmpegBase}/814.ffmpeg.js`, 'text/javascript')
                     });
 
                     showState('upload');
