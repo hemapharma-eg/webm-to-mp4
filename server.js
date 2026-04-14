@@ -3,9 +3,6 @@ const fs = require('fs');
 const path = require('path');
 
 const server = http.createServer((req, res) => {
-    // These headers instantly unlock multi-threaded high-performance WASM processing globally!
-    res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
-    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
 
     let filePath = path.join(__dirname, req.url === '/' ? 'index.html' : req.url);
     

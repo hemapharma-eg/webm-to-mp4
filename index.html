@@ -186,6 +186,8 @@
                 states[stateName].classList.remove('hidden');
             }
 
+            let lastErrorMessage = '';
+
             // Initialize FFmpeg WebAssembly Engine (v0.11)
             async function initFFmpeg() {
                 try {
@@ -194,6 +196,10 @@
                     ffmpeg = createFFmpeg({
                         log: true,
                         corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+                        logger: ({ message }) => {
+                            console.log('[FFmpeg]', message);
+                            lastErrorMessage = message;
+                        }
                     });
 
                     // Update UI Progress Ring
@@ -284,8 +290,6 @@
                         '-c:v', 'libx264',
                         '-preset', 'ultrafast',
                         '-crf', '17',
-                        '-c:a', 'aac',
-                        '-b:a', '256k',
                         outputName
                     );
 
@@ -313,7 +317,7 @@
                     showState('done');
                 } catch (error) {
                     console.error("Conversion Error:", error);
-                    errorMessage.innerText = "An error occurred during the conversion process.";
+                    errorMessage.innerText = `Error: ${error.message || 'unknown'}. (Log: ${lastErrorMessage})`;
                     showState('error');
                 }
             });
