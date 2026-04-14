@@ -6,9 +6,8 @@
     <title>High-Fidelity WEBM to MP4</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Using FFmpeg v0.12 to utilize the single-threaded core that does NOT need SharedArrayBuffer -->
-    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
+    <!-- Using FFmpeg v0.11.x which provides a more robust compatibility layer for local static HTML execution -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
     
     <style>
         .gradient-text {
@@ -187,17 +186,19 @@
                 states[stateName].classList.remove('hidden');
             }
 
-            // Initialize FFmpeg WebAssembly Engine (v0.12 Single-Thread bypass)
+            // Initialize FFmpeg WebAssembly Engine (v0.11)
             async function initFFmpeg() {
                 try {
-                    const { FFmpeg } = window.FFmpegWASM;
-                    const { toBlobURL } = window.FFmpegUtil;
+                    const { createFFmpeg } = FFmpeg;
 
-                    ffmpeg = new FFmpeg();
+                    ffmpeg = createFFmpeg({
+                        log: true,
+                        corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+                    });
 
                     // Update UI Progress Ring
-                    ffmpeg.on('progress', ({ progress, time }) => {
-                        let percentage = Math.min(Math.max(progress * 100, 0), 100);
+                    ffmpeg.setProgress(({ ratio }) => {
+                        let percentage = Math.min(Math.max(ratio * 100, 0), 100);
                         if(isNaN(percentage)) percentage = 0; 
                         
                         progressText.innerText = `${Math.round(percentage)}%`;
@@ -206,18 +207,7 @@
                         progressCircle.style.strokeDashoffset = offset;
                     });
 
-                    ffmpeg.on('log', ({ message }) => {
-                        console.log('[FFmpeg]', message);
-                    });
-
-                    const coreBase = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
-                    const ffmpegBase = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd';
-                    
-                    await ffmpeg.load({
-                        coreURL: await toBlobURL(`${coreBase}/ffmpeg-core.js`, 'text/javascript'),
-                        wasmURL: await toBlobURL(`${coreBase}/ffmpeg-core.wasm`, 'application/wasm'),
-                        classWorkerURL: await toBlobURL(`${ffmpegBase}/814.ffmpeg.js`, 'text/javascript')
-                    });
+                    await ffmpeg.load();
 
                     showState('upload');
                 } catch (error) {
@@ -272,24 +262,24 @@
                 showState('upload');
             });
 
-            // Conversion Logic (v0.12.x Syntax)
+            // Conversion Logic (v0.11.x Syntax)
             btnConvert.addEventListener('click', async () => {
                 if (!currentFile || !ffmpeg) return;
 
                 showState('converting');
-                progressText.innerText = \`0%\`;
+                progressText.innerText = `0%`;
                 progressCircle.style.strokeDashoffset = 276.46;
 
                 try {
-                    const { fetchFile } = window.FFmpegUtil;
+                    const { fetchFile } = FFmpeg;
                     const inputName = 'input.webm';
                     const outputName = 'output.mp4';
 
                     // 1. Write file to Virtual File System
-                    await ffmpeg.writeFile(inputName, await fetchFile(currentFile));
+                    ffmpeg.FS('writeFile', inputName, await fetchFile(currentFile));
 
                     // 2. Execute High-Quality Transcoding
-                    await ffmpeg.exec([
+                    await ffmpeg.run(
                         '-i', inputName,
                         '-c:v', 'libx264',
                         '-preset', 'ultrafast',
@@ -297,10 +287,10 @@
                         '-c:a', 'aac',
                         '-b:a', '256k',
                         outputName
-                    ]);
+                    );
 
                     // 3. Read Output from Virtual File System
-                    const data = await ffmpeg.readFile(outputName);
+                    const data = ffmpeg.FS('readFile', outputName);
                     
                     // 4. Create Blob & Download URL
                     const blob = new Blob([data.buffer], { type: 'video/mp4' });
@@ -311,14 +301,14 @@
                     outputObjectURL = URL.createObjectURL(blob);
 
                     // 5. Setup Download State
-                    let outName = currentFile.name.replace(/\\.[^/.]+$/, "") + ".mp4";
+                    let outName = currentFile.name.replace(/\.[^/.]+$/, "") + ".mp4";
                     btnDownload.href = outputObjectURL;
                     btnDownload.download = outName;
-                    outputInfo.innerText = \`Converted Size: \${formatBytes(blob.size)}\`;
+                    outputInfo.innerText = `Converted Size: ${formatBytes(blob.size)}`;
 
                     // 6. Cleanup Memory
-                    await ffmpeg.deleteFile(inputName);
-                    await ffmpeg.deleteFile(outputName);
+                    ffmpeg.FS('unlink', inputName);
+                    ffmpeg.FS('unlink', outputName);
 
                     showState('done');
                 } catch (error) {
