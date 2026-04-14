@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>High-Fidelity WEBM to MP4</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Using FFmpeg v0.12 to utilize the single-threaded core that does NOT need SharedArrayBuffer -->
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
+    
+    <style>
+        .gradient-text {
+            background: linear-gradient(to right, #60a5fa, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .drag-over {
+            border-color: #c084fc !important;
+            background-color: rgba(192, 132, 252, 0.05) !important;
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen font-sans flex items-center justify-center p-4 selection:bg-purple-500/30">
+
+    <div class="max-w-xl w-full bg-gray-900 border border-gray-800 rounded-3xl shadow-2xl shadow-purple-900/10 overflow-hidden flex flex-col relative">
+        
+        <!-- Header -->
+        <div class="px-8 pt-8 pb-6 border-b border-gray-800/60 text-center relative">
+            <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500"></div>
+            <h1 class="text-3xl font-bold gradient-text mb-2 tracking-tight">WEBM to MP4</h1>
+            <p class="text-sm text-gray-400">High-Fidelity Local Converter &bull; 100% Private</p>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="p-8 flex-1 flex flex-col items-center justify-center min-h-[320px]" id="main-container">
+            
+            <!-- State 1: Initializing -->
+            <div id="state-initializing" class="flex flex-col items-center text-center w-full">
+                <svg class="animate-spin h-10 w-10 text-purple-500 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <h2 class="text-lg font-medium text-gray-200">Loading Conversion Engine...</h2>
+                <p class="text-sm text-gray-500 mt-2">Downloading FFmpeg WebAssembly core</p>
+            </div>
+
+            <!-- State 2: Upload / Dropzone -->
+            <div id="state-upload" class="hidden flex flex-col items-center text-center w-full">
+                <div id="dropzone" class="w-full border-2 border-dashed border-gray-700 rounded-2xl p-10 transition-all duration-200 cursor-pointer hover:border-gray-500 hover:bg-gray-800/50 flex flex-col items-center justify-center group relative overflow-hidden">
+                    <input type="file" id="file-input" accept="video/webm" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                    
+                    <div class="bg-gray-800 p-4 rounded-full mb-4 group-hover:scale-110 transition-transform duration-300 shadow-lg">
+                        <svg class="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold text-gray-200 mb-1">Select or drop a .webm file</h3>
+                    <p class="text-sm text-gray-500">Max size depends on available device memory</p>
+                </div>
+            </div>
+
+            <!-- State 3: Ready to Convert -->
+            <div id="state-ready" class="hidden flex flex-col items-center w-full">
+                <div class="w-full bg-gray-800/50 border border-gray-700/50 rounded-xl p-5 mb-6 flex items-center gap-4">
+                    <div class="bg-purple-900/30 p-3 rounded-lg text-purple-400">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <h4 id="file-name" class="text-sm font-medium text-gray-200 truncate">video.webm</h4>
+                        <p id="file-size" class="text-xs text-gray-500 mt-0.5">12.4 MB</p>
+                    </div>
+                    <button id="btn-cancel" class="text-gray-500 hover:text-red-400 p-2 transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+                
+                <div class="text-xs text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 mb-6 flex items-start gap-2 w-full">
+                    <svg class="w-4 h-4 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    <p>Configured for <b>maximum quality</b>. File size may increase significantly to preserve original fidelity.</p>
+                </div>
+
+                <button id="btn-convert" class="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-medium py-3.5 px-6 rounded-xl shadow-lg shadow-purple-500/20 transform transition-all active:scale-[0.98] flex items-center justify-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                    Start Lossless Conversion
+                </button>
+            </div>
+
+            <!-- State 4: Converting -->
+            <div id="state-converting" class="hidden flex flex-col items-center w-full">
+                <div class="mb-4 relative w-24 h-24 flex items-center justify-center">
+                    <!-- Circular Progress -->
+                    <svg class="transform -rotate-90 w-24 h-24">
+                        <circle cx="48" cy="48" r="44" stroke="currentColor" stroke-width="6" fill="transparent" class="text-gray-800" />
+                        <circle id="progress-circle" cx="48" cy="48" r="44" stroke="currentColor" stroke-width="6" fill="transparent" stroke-dasharray="276.46" stroke-dashoffset="276.46" class="text-purple-500 transition-all duration-300 ease-out" stroke-linecap="round" />
+                    </svg>
+                    <div class="absolute inset-0 flex items-center justify-center flex-col">
+                        <span id="progress-text" class="text-2xl font-bold text-gray-100">0%</span>
+                    </div>
+                </div>
+                <h3 class="text-lg font-medium text-gray-200 mb-1">Transcoding Engine Active</h3>
+                <p class="text-sm text-gray-500 text-center px-4">Processing frames. This may take a while depending on file size and device speed.</p>
+            </div>
+
+            <!-- State 5: Done -->
+            <div id="state-done" class="hidden flex flex-col items-center w-full">
+                <div class="w-16 h-16 bg-green-500/20 text-green-400 rounded-full flex items-center justify-center mb-6 ring-4 ring-green-500/10">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                </div>
+                <h3 class="text-xl font-bold text-gray-100 mb-2">Conversion Complete!</h3>
+                <p id="output-info" class="text-sm text-gray-400 mb-8">Successfully rendered MP4.</p>
+                
+                <div class="flex gap-4 w-full">
+                    <button id="btn-reset" class="flex-1 bg-gray-800 hover:bg-gray-700 text-white font-medium py-3 px-4 rounded-xl transition-colors">
+                        Convert Another
+                    </button>
+                    <a id="btn-download" href="#" download="output.mp4" class="flex-1 bg-green-600 hover:bg-green-500 text-white font-medium py-3 px-4 rounded-xl shadow-lg shadow-green-500/20 transform transition-all active:scale-[0.98] flex items-center justify-center gap-2 text-center">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        Save MP4
+                    </a>
+                </div>
+            </div>
+
+            <!-- State Error -->
+            <div id="state-error" class="hidden flex flex-col items-center w-full text-center">
+                <div class="w-16 h-16 bg-red-500/20 text-red-400 rounded-full flex items-center justify-center mb-4">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                </div>
+                <h3 class="text-xl font-bold text-gray-100 mb-2">Something went wrong</h3>
+                <p id="error-message" class="text-sm text-gray-400 mb-6">Failed to process the file.</p>
+                <button id="btn-error-reset" class="bg-gray-800 hover:bg-gray-700 text-white font-medium py-2.5 px-6 rounded-xl transition-colors">
+                    Try Again
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            // UI Elements
+            const states = {
+                initializing: document.getElementById('state-initializing'),
+                upload: document.getElementById('state-upload'),
+                ready: document.getElementById('state-ready'),
+                converting: document.getElementById('state-converting'),
+                done: document.getElementById('state-done'),
+                error: document.getElementById('state-error')
+            };
+
+            const dropzone = document.getElementById('dropzone');
+            const fileInput = document.getElementById('file-input');
+            const btnCancel = document.getElementById('btn-cancel');
+            const btnConvert = document.getElementById('btn-convert');
+            const btnReset = document.getElementById('btn-reset');
+            const btnErrorReset = document.getElementById('btn-error-reset');
+            const btnDownload = document.getElementById('btn-download');
+            
+            const fileNameDisplay = document.getElementById('file-name');
+            const fileSizeDisplay = document.getElementById('file-size');
+            const progressText = document.getElementById('progress-text');
+            const progressCircle = document.getElementById('progress-circle');
+            const outputInfo = document.getElementById('output-info');
+            const errorMessage = document.getElementById('error-message');
+
+            let ffmpeg = null;
+            let currentFile = null;
+            let outputObjectURL = null;
+
+            // Utility: Format Bytes
+            function formatBytes(bytes, decimals = 2) {
+                if (!+bytes) return '0 Bytes';
+                const k = 1024;
+                const dm = decimals < 0 ? 0 : decimals;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+            }
+
+            // Switch UI State
+            function showState(stateName) {
+                Object.values(states).forEach(el => el.classList.add('hidden'));
+                states[stateName].classList.remove('hidden');
+            }
+
+            // Initialize FFmpeg WebAssembly Engine (v0.12 Single-Thread bypass)
+            async function initFFmpeg() {
+                try {
+                    const { FFmpeg } = window.FFmpegWASM;
+                    const { toBlobURL } = window.FFmpegUtil;
+
+                    ffmpeg = new FFmpeg();
+
+                    // Update UI Progress Ring
+                    ffmpeg.on('progress', ({ progress, time }) => {
+                        let percentage = Math.min(Math.max(progress * 100, 0), 100);
+                        if(isNaN(percentage)) percentage = 0; 
+                        
+                        progressText.innerText = `${Math.round(percentage)}%`;
+                        
+                        const offset = 276.46 - (percentage / 100) * 276.46;
+                        progressCircle.style.strokeDashoffset = offset;
+                    });
+
+                    ffmpeg.on('log', ({ message }) => {
+                        console.log('[FFmpeg]', message);
+                    });
+
+                    // We use jsdelivr as it is typically more stable than unpkg for iframe embedding
+                    const coreBase = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
+                    const ffmpegBase = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd';
+
+                    // Manually fetch both the core & wrapper scripts to build an "Inline Blob Worker"
+                    // This comprehensively bypasses CORS, importScripts restrictions, and CSP limitations.
+                    const [coreRes, workerRes] = await Promise.all([
+                        fetch(`${coreBase}/ffmpeg-core.js`),
+                        fetch(`${ffmpegBase}/814.ffmpeg.js`)
+                    ]);
+
+                    if (!coreRes.ok || !workerRes.ok) {
+                        throw new Error("Failed to download FFmpeg scripts");
+                    }
+
+                    const coreText = await coreRes.text();
+                    const workerText = await workerRes.text();
+
+                    // Combine scripts and override the worker's native importScripts to prevent it from refetching the core
+                    const combinedWorkerText = \`
+                        const originalImportScripts = self.importScripts;
+                        self.importScripts = function(...args) {
+                            if (args[0] && args[0].includes('ffmpeg-core.js')) return; 
+                            return originalImportScripts.apply(this, args);
+                        };
+                        \${coreText}
+                        \${workerText}
+                    \`;
+                    
+                    const workerBlob = new Blob([combinedWorkerText], { type: 'text/javascript' });
+                    const classWorkerURL = URL.createObjectURL(workerBlob);
+
+                    // Grab the WebAssembly executable 
+                    const wasmURL = await toBlobURL(`${coreBase}/ffmpeg-core.wasm`, 'application/wasm');
+
+                    await ffmpeg.load({
+                        coreURL: `${coreBase}/ffmpeg-core.js`, // Ignored by our stub, but required by API validation
+                        wasmURL: wasmURL,
+                        classWorkerURL: classWorkerURL
+                    });
+
+                    showState('upload');
+                } catch (error) {
+                    console.error("FFmpeg Load Error:", error);
+                    errorMessage.innerText = "Failed to load the conversion engine. Please check your network connection.";
+                    showState('error');
+                }
+            }
+
+            // Handle File Selection
+            function handleFile(file) {
+                if (!file) return;
+                if (!file.type.includes('webm') && !file.name.toLowerCase().endsWith('.webm')) {
+                    alert("Please select a WEBM file.");
+                    return;
+                }
+                
+                currentFile = file;
+                fileNameDisplay.innerText = file.name;
+                fileSizeDisplay.innerText = formatBytes(file.size);
+                showState('ready');
+            }
+
+            // Drag and Drop Events
+            dropzone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropzone.classList.add('drag-over');
+            });
+
+            dropzone.addEventListener('dragleave', () => {
+                dropzone.classList.remove('drag-over');
+            });
+
+            dropzone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropzone.classList.remove('drag-over');
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    handleFile(e.dataTransfer.files[0]);
+                }
+            });
+
+            fileInput.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                    handleFile(e.target.files[0]);
+                }
+            });
+
+            // Cancel Selection
+            btnCancel.addEventListener('click', () => {
+                currentFile = null;
+                fileInput.value = "";
+                showState('upload');
+            });
+
+            // Conversion Logic (v0.12.x Syntax)
+            btnConvert.addEventListener('click', async () => {
+                if (!currentFile || !ffmpeg) return;
+
+                showState('converting');
+                progressText.innerText = \`0%\`;
+                progressCircle.style.strokeDashoffset = 276.46;
+
+                try {
+                    const { fetchFile } = window.FFmpegUtil;
+                    const inputName = 'input.webm';
+                    const outputName = 'output.mp4';
+
+                    // 1. Write file to Virtual File System
+                    await ffmpeg.writeFile(inputName, await fetchFile(currentFile));
+
+                    // 2. Execute High-Quality Transcoding
+                    await ffmpeg.exec([
+                        '-i', inputName,
+                        '-c:v', 'libx264',
+                        '-preset', 'ultrafast',
+                        '-crf', '17',
+                        '-c:a', 'aac',
+                        '-b:a', '256k',
+                        outputName
+                    ]);
+
+                    // 3. Read Output from Virtual File System
+                    const data = await ffmpeg.readFile(outputName);
+                    
+                    // 4. Create Blob & Download URL
+                    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+                    
+                    if (outputObjectURL) {
+                        URL.revokeObjectURL(outputObjectURL);
+                    }
+                    outputObjectURL = URL.createObjectURL(blob);
+
+                    // 5. Setup Download State
+                    let outName = currentFile.name.replace(/\\.[^/.]+$/, "") + ".mp4";
+                    btnDownload.href = outputObjectURL;
+                    btnDownload.download = outName;
+                    outputInfo.innerText = \`Converted Size: \${formatBytes(blob.size)}\`;
+
+                    // 6. Cleanup Memory
+                    await ffmpeg.deleteFile(inputName);
+                    await ffmpeg.deleteFile(outputName);
+
+                    showState('done');
+                } catch (error) {
+                    console.error("Conversion Error:", error);
+                    errorMessage.innerText = "An error occurred during the conversion process.";
+                    showState('error');
+                }
+            });
+
+            // Reset flows
+            const resetFlow = () => {
+                currentFile = null;
+                fileInput.value = "";
+                showState('upload');
+            };
+
+            btnReset.addEventListener('click', resetFlow);
+            btnErrorReset.addEventListener('click', resetFlow);
+
+            // Start Initializing on load
+            initFFmpeg();
+        });
+    </script>
+</body>
+</html>
