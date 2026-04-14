@@ -15,6 +15,7 @@ const server = http.createServer((req, res) => {
 
         if (filePath.endsWith('.html')) res.setHeader('Content-Type', 'text/html');
         else if (filePath.endsWith('.js')) res.setHeader('Content-Type', 'text/javascript');
+        else if (filePath.endsWith('.wasm')) res.setHeader('Content-Type', 'application/wasm');
         
         res.writeHead(200);
         res.end(data);
