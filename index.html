@@ -210,45 +210,11 @@
                         console.log('[FFmpeg]', message);
                     });
 
-                    // We use jsdelivr as it is typically more stable than unpkg for iframe embedding
-                    const coreBase = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
-                    const ffmpegBase = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd';
-
-                    // Manually fetch both the core & wrapper scripts to build an "Inline Blob Worker"
-                    // This comprehensively bypasses CORS, importScripts restrictions, and CSP limitations.
-                    const [coreRes, workerRes] = await Promise.all([
-                        fetch(`${coreBase}/ffmpeg-core.js`),
-                        fetch(`${ffmpegBase}/814.ffmpeg.js`)
-                    ]);
-
-                    if (!coreRes.ok || !workerRes.ok) {
-                        throw new Error("Failed to download FFmpeg scripts");
-                    }
-
-                    const coreText = await coreRes.text();
-                    const workerText = await workerRes.text();
-
-                    // Combine scripts and override the worker's native importScripts to prevent it from refetching the core
-                    const combinedWorkerText = \`
-                        const originalImportScripts = self.importScripts;
-                        self.importScripts = function(...args) {
-                            if (args[0] && args[0].includes('ffmpeg-core.js')) return; 
-                            return originalImportScripts.apply(this, args);
-                        };
-                        \${coreText}
-                        \${workerText}
-                    \`;
+                    const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
                     
-                    const workerBlob = new Blob([combinedWorkerText], { type: 'text/javascript' });
-                    const classWorkerURL = URL.createObjectURL(workerBlob);
-
-                    // Grab the WebAssembly executable 
-                    const wasmURL = await toBlobURL(`${coreBase}/ffmpeg-core.wasm`, 'application/wasm');
-
                     await ffmpeg.load({
-                        coreURL: `${coreBase}/ffmpeg-core.js`, // Ignored by our stub, but required by API validation
-                        wasmURL: wasmURL,
-                        classWorkerURL: classWorkerURL
+                        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+                        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm')
                     });
 
                     showState('upload');
