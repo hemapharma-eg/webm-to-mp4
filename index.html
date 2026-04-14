@@ -303,14 +303,18 @@
                     let data;
                     let method = '';
 
-                    // ====== PHASE 1: Instant Stream Copy (no re-encoding) ======
-                    // If the WEBM contains VP9 video (very common), we can just rewrap
-                    // the streams directly into an MP4 container — essentially zero processing time.
+                    // ====== PHASE 1: Fast Copy (video stream copy + audio re-encode) ======
+                    // Video: stream copy (instant, no re-encoding needed for VP9-in-MP4).
+                    // Audio: re-encode Opus→AAC to fix clicking/popping artifacts from
+                    //        Opus timestamp misalignment in MP4 containers. Audio-only
+                    //        re-encoding is extremely fast and barely adds processing time.
                     try {
-                        console.log('[Convert] Phase 1: Attempting instant stream copy...');
+                        console.log('[Convert] Phase 1: Video copy + audio AAC re-encode...');
                         await ffmpeg.exec([
                             '-i', inputName,
-                            '-c', 'copy',
+                            '-c:v', 'copy',
+                            '-c:a', 'aac',
+                            '-b:a', '192k',
                             '-movflags', '+faststart',
                             outputName
                         ]);
@@ -319,8 +323,8 @@
 
                         // Validate: stream copy can "succeed" but produce a tiny/empty file
                         if (data.length > 1024) {
-                            method = 'Stream Copy (instant)';
-                            console.log('[Convert] Phase 1 succeeded! No re-encoding needed.');
+                            method = 'Fast Copy (video pass-through)';
+                            console.log('[Convert] Phase 1 succeeded!');
                         } else {
                             console.warn('[Convert] Phase 1 produced empty output, falling back...');
                             data = null;
