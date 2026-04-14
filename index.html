@@ -214,11 +214,13 @@
                     });
 
                     const coreBaseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+                    const ffmpegBaseURL = 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd';
                     
-                    // Loading core files exactly as documented, allowing local server to resolve cleanly
+                    // Loading core files and explicitly setting the Web Worker Blob to bypass Cross-Origin restrictions!
                     await ffmpeg.load({
                         coreURL: await toBlobURL(`${coreBaseURL}/ffmpeg-core.js`, 'text/javascript'),
-                        wasmURL: await toBlobURL(`${coreBaseURL}/ffmpeg-core.wasm`, 'application/wasm')
+                        wasmURL: await toBlobURL(`${coreBaseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+                        classWorkerURL: await toBlobURL(`${ffmpegBaseURL}/814.ffmpeg.js`, 'text/javascript')
                     });
 
                     showState('upload');
